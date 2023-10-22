@@ -1,0 +1,10 @@
+
+paths:
+  model: .results/model.pth
+  optimizer: .results/optimizer.pth
+  metrics: metrics.csv
+
+model:
+  train_batch_size: 64
+  test_batch_size: 64
+  n_epoch: 1

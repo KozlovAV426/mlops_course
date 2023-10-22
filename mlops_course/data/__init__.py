@@ -1,13 +1,9 @@
-import torch
 import torchvision
 
 
-batch_size_train = 64
-batch_size_test = 1000
-
-train_loader = torch.utils.data.DataLoader(
-    torchvision.datasets.MNIST(
-        '.files/',
+def get_train_dataset():
+    return torchvision.datasets.MNIST(
+        '../data/.files',
         train=True,
         download=True,
         transform=torchvision.transforms.Compose(
@@ -16,14 +12,12 @@ train_loader = torch.utils.data.DataLoader(
                 torchvision.transforms.Normalize((0.1307,), (0.3081,)),
             ]
         ),
-    ),
-    batch_size=batch_size_train,
-    shuffle=True,
-)
+    )
 
-test_loader = torch.utils.data.DataLoader(
-    torchvision.datasets.MNIST(
-        '.files/',
+
+def get_test_dataset():
+    return torchvision.datasets.MNIST(
+        '../data/.files',
         train=False,
         download=True,
         transform=torchvision.transforms.Compose(
@@ -32,7 +26,4 @@ test_loader = torch.utils.data.DataLoader(
                 torchvision.transforms.Normalize((0.1307,), (0.3081,)),
             ]
         ),
-    ),
-    batch_size=batch_size_test,
-    shuffle=True,
-)
+    )
