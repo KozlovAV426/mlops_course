@@ -1,6 +1,7 @@
 import os
 from typing import Any
 
+import git
 import pandas as pd
 import pytorch_lightning as pl
 import torch
@@ -128,15 +129,23 @@ class MnistSolver:
             optim=self.optim,
             criterion=criterion,
         )
+
+        repo = git.Repo(search_parent_directories=True)
+        sha = repo.head.object.hexsha
+
+        mlflow_logger = pl.loggers.MLFlowLogger(
+            experiment_name='mnist', tracking_uri=self.mlflow_url
+        )
+        mlflow_logger.log_hyperparams(
+            {'git_commit_id': sha, 'n_epoch': n_epoch, 'lr': lr, 'momentum': momentum}
+        )
+
         self.pl_trainer = pl.Trainer(
             precision="bf16-mixed",
             max_epochs=self.n_epoch,
             log_every_n_steps=1,
             logger=[
-                pl.loggers.MLFlowLogger(
-                    experiment_name='mnist',
-                    tracking_uri=self.mlflow_url,
-                ),
+                mlflow_logger,
                 pl.loggers.CSVLogger("logs"),
             ],
         )

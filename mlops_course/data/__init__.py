@@ -23,8 +23,6 @@ class DataModule(pl.LightningDataModule):
         self.test_dataset = self.get_test_dataset()
 
     def split_into_train_val_dataset(self):
-        print("Loading train-val dataset")
-
         dataset = torchvision.datasets.MNIST(
             self.dataset_path,
             train=True,
@@ -36,8 +34,6 @@ class DataModule(pl.LightningDataModule):
                 ]
             ),
         )
-
-        print(f"dataset type = {type(dataset)}")
 
         return dataset, dataset
 
