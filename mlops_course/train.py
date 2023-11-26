@@ -1,14 +1,9 @@
-from mlops_course.data import get_train_dataset
-from mlops_course.trainer.mnist_solver import MnistSolver
-from model.model import Net
+from mlops_course.commands import Starter
 
 
 def main():
-    model = Net()
-    train_dataset = get_train_dataset()
-
-    solver = MnistSolver(model)
-    solver.train(train_dataset)
+    starter = Starter()
+    starter.train()
 
 
 if __name__ == "__main__":

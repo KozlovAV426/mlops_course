@@ -1,14 +1,95 @@
 import os
+from typing import Any
 
 import pandas as pd
+import pytorch_lightning as pl
 import torch
-import torch.optim as optim
 from torch import nn
 
 
 PATH_TO_METRICS = "metrics.csv"
 PATH_TO_OPTIMIZER = ".results/optimizer.pth"
 PATH_TO_MODEL = ".results/model.pth"
+
+
+class TrainerModule(pl.LightningModule):
+    def __init__(
+        self,
+        model: nn.Module,
+        lr: float = None,
+        weight_decay: float = None,
+        optim: torch.optim.Optimizer = None,
+        criterion: nn.Module = None,
+    ):
+        super().__init__()
+
+        self.model = model
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.optim = optim
+
+        self.criterion = criterion or nn.CrossEntropyLoss()
+
+    def forward(self, *args: Any, **kwargs: Any):
+        return self.model.forward(*args, **kwargs)
+
+    def configure_optimizers(self):
+        optimizer = self.optim or torch.optim.SGD(
+            self.model.parameters(), lr=self.lr or 0.01, momentum=self.momentum or 0.5
+        )
+        return optimizer
+
+    def training_step(self, batch, batch_idx):
+        x_batch, y_batch = batch
+        self.model.train(True)
+
+        logits = self.model(x_batch)
+        loss = self.criterion(logits, y_batch)
+        self.log("train_loss", loss, on_step=True, on_epoch=True)
+
+        self.log(
+            "train_accuracy",
+            (logits.detach().cpu().argmax(axis=1) == y_batch).float().mean(),
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+        )
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x_batch, y_batch = batch
+        self.model.train(False)
+
+        with torch.no_grad():
+            logits = self.model(x_batch)
+            loss = self.criterion(logits, y_batch)
+            self.log("val_loss", loss, on_step=True, on_epoch=True)
+
+            self.log(
+                "val_accuracy",
+                (logits.detach().cpu().argmax(axis=1) == y_batch).float().mean(),
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+            )
+
+            return loss
+
+    def predict_step(self, batch, batch_idx):
+        x_batch, y_batch = batch
+        self.model.train(False)
+
+        with torch.no_grad():
+            logits = self.model(x_batch)
+            predictions = logits.detach().cpu().argmax(axis=1)
+
+            return {
+                "true_label": y_batch,
+                "predicted_label": predictions,
+                "logits": logits,
+                "loss": self.criterion(logits, y_batch).item(),
+            }
 
 
 class MnistSolver:
@@ -22,10 +103,13 @@ class MnistSolver:
         path_to_model: str = None,
         path_to_optimizer: str = None,
         path_to_metrics: str = None,
+        n_epoch: int = None,
+        mflow_url: str = None,
     ):
         self.model = model
+        self.n_epoch = n_epoch or 1
 
-        self.optim = optimizer or optim.SGD(
+        self.optim = optimizer or torch.optim.SGD(
             model.parameters(), lr=lr or 0.01, momentum=momentum or 0.5
         )
         self.criterion = criterion or nn.CrossEntropyLoss()
@@ -33,86 +117,54 @@ class MnistSolver:
         self.path_to_model = path_to_model or PATH_TO_MODEL
         self.path_to_optimizer = path_to_optimizer or PATH_TO_OPTIMIZER
         self.path_to_metrics = path_to_metrics or PATH_TO_METRICS
+        self.mlflow_url = mflow_url
 
         os.makedirs(self.path_to_model.split('/')[0], exist_ok=True)
         os.makedirs(self.path_to_optimizer.split('/')[0], exist_ok=True)
 
-    def train_epoch(self, epoch, train_loader, log_interval=10):
-        train_losses = []
-        train_counter = []
-
-        for batch_idx, (data, target) in enumerate(train_loader):
-            self.optim.zero_grad()
-            output = self.model(data)
-            loss = self.criterion(output, target)
-            loss.backward()
-            self.optim.step()
-
-            if batch_idx % log_interval == 0:
-                print(
-                    'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                        epoch,
-                        batch_idx * len(data),
-                        len(train_loader.dataset),
-                        100.0 * batch_idx / len(train_loader),
-                        loss.item(),
-                    )
-                )
-
-                train_losses.append(loss.item())
-                train_counter.append(
-                    (batch_idx * 64) + ((epoch - 1) * len(train_loader.dataset))
-                )
-
-                torch.save(self.model.state_dict(), self.path_to_model)
-                torch.save(self.optim.state_dict(), self.path_to_optimizer)
-
-    def train(self, dataset, n_epoch=1, log_interval=10, batch_size_train=64):
-        self.model.train()
-        train_loader = torch.utils.data.DataLoader(
-            dataset, batch_size=batch_size_train, shuffle=True
+        self.trainer = TrainerModule(
+            model=model,
+            lr=lr,
+            optim=self.optim,
+            criterion=criterion,
+        )
+        self.pl_trainer = pl.Trainer(
+            precision="bf16-mixed",
+            max_epochs=self.n_epoch,
+            log_every_n_steps=1,
+            logger=[
+                pl.loggers.MLFlowLogger(
+                    experiment_name='mnist',
+                    tracking_uri=self.mlflow_url,
+                ),
+                pl.loggers.CSVLogger("logs"),
+            ],
         )
 
-        for epoch in range(n_epoch):
-            self.train_epoch(epoch, train_loader, log_interval)
+    def fit(self, data_module: pl.LightningDataModule):
+        self.pl_trainer.fit(self.trainer, data_module)
 
-    def validate(self, dataset, batch_size_test=1024):
-        self.model.eval()
+    def predict(self, dataloader, path=None):
+        prediction = self.pl_trainer.predict(
+            model=self.trainer, dataloaders=[dataloader]
+        )[0]
 
-        test_loader = torch.utils.data.DataLoader(
-            dataset, batch_size=batch_size_test, shuffle=True
-        )
+        true_labels = prediction["true_label"]
+        predicted = prediction["predicted_label"]
 
-        test_loss = 0
-        correct = 0
+        metrics = {
+            "avg_loss": prediction["loss"],
+            "accuracy": [(true_labels.numpy() == predicted.numpy()).mean()],
+        }
+        df = pd.DataFrame(metrics)
 
-        test_losses = []
-
-        with torch.no_grad():
-            for data, target in test_loader:
-                output = self.model(data)
-                test_loss += self.criterion(output, target).item()
-                pred = output.data.max(1, keepdim=True)[1]
-                correct += pred.eq(target.data.view_as(pred)).sum()
-        test_loss /= len(test_loader.dataset)
-        test_losses.append(test_loss)
-        print(
-            '\nTest set: Avg. loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-                test_loss,
-                correct,
-                len(test_loader.dataset),
-                100.0 * correct / len(test_loader.dataset),
-            )
-        )
-        pd.DataFrame(
-            {
-                'metric_name': ['avg_loss', 'accuracy'],
-                'value': [test_loss, 100.0 * correct / len(test_loader.dataset)],
-            }
-        ).to_csv(self.path_to_metrics)
+        if path:
+            df.reset_index().round(3).to_csv(path, index=False)
 
     def save_model(self, path=None):
-        torch.save(self.model.state_dict(), path or self.path_to_model)
+        self.pl_trainer.save_checkpoint(path or self.path_to_model, weights_only=True)
 
     def load_model(self, path=None):
-        self.model.load_state_dict(torch.load(path or self.path_to_model))
+        self.trainer = TrainerModule.load_from_checkpoint(
+            path or self.path_to_model, model=self.model
+        )

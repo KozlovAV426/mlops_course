@@ -6,12 +6,12 @@ class PathParams:
     model: str
     optimizer: str
     metrics: str
+    dataset: str
 
 
 @dataclass
 class ModelParams:
-    train_batch_size: int
-    test_batch_size: int
+    batch_size: int
     n_epoch: int
 
 
@@ -19,3 +19,4 @@ class ModelParams:
 class Params:
     paths: PathParams
     model: ModelParams
+    mlflow_url: str
