@@ -2,6 +2,7 @@ import os
 from typing import Any
 
 import git
+import mlflow.onnx
 import pandas as pd
 import pytorch_lightning as pl
 import torch
@@ -145,10 +146,13 @@ class MnistSolver:
             max_epochs=self.n_epoch,
             log_every_n_steps=1,
             logger=[
-                mlflow_logger,
+                # mlflow_logger,
                 pl.loggers.CSVLogger("logs"),
             ],
         )
+
+    def save_onnx_model(self, path="model_dir"):
+        mlflow.onnx.save_model(self.model, path)
 
     def fit(self, data_module: pl.LightningDataModule):
         self.pl_trainer.fit(self.trainer, data_module)
