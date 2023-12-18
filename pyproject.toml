@@ -21,6 +21,8 @@ gitpython = "^3.1.40"
 onnx = "^1.15.0"
 onnxscript = "^0.1.0.dev20231203"
 onnxruntime = "^1.16.3"
+tritonclient = {extras = ["http"], version = "^2.40.0"}
+gevent = "^23.9.1"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.4.0"

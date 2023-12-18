@@ -131,6 +131,8 @@ dmypy.json
 .files
 .results
 
+*.onnx
+
 .idea
 
 *.csv
